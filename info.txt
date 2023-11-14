@@ -1,0 +1,55 @@
+LSTMS work with fixed intervals and usually do not look back more than 1 year. In our case
+this is a problem because the watershed has memory that spans more than a year. Here a transformer
+comes in handy because it is able to take into account information from more than a year ago.
+Additionally it can work with nonuniform time distances.
+
+LSTMs process tokens sequentially This architecture maintains a hidden state that is updated 
+with every new input token, representing the entire sequence it has seen. Theoretically, very 
+important information can propagate over infinitely long sequences. However, in practice, this 
+it not the case. Due to the vanishing gradient problem, the LSTM will eventually forget earlier tokens.
+
+In comparison, Transformers retain direct connections to all previous timestamps, allowing 
+information  to propagate over much longer sequences. However, this entails a new challenge: 
+the model will be directly connected to an exploding amount of input. In order to filter the 
+important from the unimportant, Transformers use an algorithm called self-attention.
+
+The mathematical summary would to find the function f such that:
+	Q_{t+1} = f(X_{t}, X_{t-1}, \dots, X_{t-n})
+Where Q is the stream flow in mm (because they divided discharge by the area of the water shed),
+and X is the snow output from the model: snow melted + precipitation.
+Q starts on October 2nd 1980, while X starts on October 1st, 1980
+
+When it comes to the train, test, and pred sets I have to do the following division in water years:
+	training: 1980 - 2006
+	testing/dev: 2006 - 2008
+	prediction: 2008 - end (2022)
+
+A good start (vanilla version) would be to use a uniform time step from a past series to predict the next step.
+(Maybe only with precipitation to begin).
+
+Then multistep resolution: Use averages per month when we train on data far from the prediction point but increase
+to daily when we are getting closer to that point.
+
+Resources:
+One of the first codes that I though it was interesting> https://github.com/nok-halfspace/Transformer-Time-Series-Forecasting
+
+Paper in which a trasformer was used for time series prediction https://arxiv.org/abs/2001.08317
+Adapted code from that paper https://github.com/KasperGroesLudvigsen/influenza_transformer/tree/main
+Seohye code https://github.com/GW-ASU/LR-Multi-HeadAttention/blob/main/Transformer_timeadd_log_layers.ipynb
+Tutorial https://huggingface.co/blog/time-series-transformers
+Questions that may help me with encoding https://discuss.pytorch.org/t/using-transformer-on-timeseries/104759/6
+
+Autoformer: https://github.com/thuml/Autoformer
+FEDformer: https://github.com/MAZiqing/FEDformer
+FEDformer is probably better for long sequence prediction tasks, 
+as the authors state in the paper when they compare it with th Autoformer.
+
+Explained theory
+https://machinelearningmastery.com/wp-content/uploads/2021/08/attention_research_1-727x1024.png
+https://ketanhdoshi.github.io/Transformers-Overview/
+https://ketanhdoshi.github.io/Transformers-Arch/
+https://ketanhdoshi.github.io/Transformers-Attention/
+https://deepgram.com/learn/visualizing-and-explaining-transformer-models-from-the-ground-up
+https://www.youtube.com/watch?v=4Bdc55j80l8&ab_channel=TheA.I.Hacker-MichaelPhi
+https://pytorch.org/docs/stable/generated/torch.nn.Transformer.html
+
