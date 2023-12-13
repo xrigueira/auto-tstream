@@ -9,42 +9,22 @@ from torch import Tensor
 from pathlib import Path
 from typing import Optional, Any, Union, Callable, Tuple
 
-def get_indices(data: pd.DataFrame, window_size: int, step_size: int) -> list:
+from timefeatures import time_features
+
+def positional_encoder(data, time_encoding, frequency):
     
-    """
-    Produce all the start and end index position that is needed to obtain the sub-sequences.
+    time_stamps = data[['time']]
     
-    Returns a list of tuples. Each tuple is (start_idx, end_idx) of a subsequence. These tuples
-    should be used to slice the dataset into sub-sequences. These sub-sequences should then be
-    passed into a function that sliced them into input and target sequences.
-    ----------
-    Arguments:
-    data (pd.DataFrame): loaded database to generate the subsequences from.
-    window_size (int): the desired length of each sub-sequence. Should be (input_sequence_length + 
-        tgt_sequence_length). E.g. if you want the model to consider the past 100 time steps in 
-        order to predict the future 50 time_steps, window_size = 100 + 50 = 150.
-    step_size (int): size of each step as the data sequence is traversed by the moving window.
-    
-    Return:
-    indices: a lits of tuples.
-    """
-    
-    # Define the stop position
-    stop_position = len(data) - 1 # because of 0 indexing in Python
-    
-    # Start the first sub-sequence at index 0
-    subseq_first_idx = 0
-    subseq_last_idx = window_size
-    
-    indices = []
-    while subseq_last_idx <= stop_position:
+    if time_encoding != 'time_frequency':
+        time_stamps['month'] = time_stamps.time.apply(lambda row: row.month, 1)
+        time_stamps['day'] = time_stamps.time.apply(lambda row: row.day, 1)
+        time_stamps['weekday'] = time_stamps.time.apply(lambda row: row.weekday(), 1)
+        data_pe = time_stamps.drop(['time'], axis=1).values
+    else: # time_encoding = 'fixed' or 'learned'
+        data_pe = time_features(pd.to_datetime(time_stamps['time'].values), freq=frequency)
+        data_pe = data_pe.transpose(1, 0)
         
-        indices.append((subseq_first_idx, subseq_last_idx))
-        
-        subseq_first_idx += step_size
-        subseq_last_idx += step_size
-        
-    return indices
+    return data_pe
 
 def read_data(data_dir: Union[str, Path] = 'data/utah', timestamp_col_name: str='time') -> pd.DataFrame:
     
@@ -74,7 +54,7 @@ def read_data(data_dir: Union[str, Path] = 'data/utah', timestamp_col_name: str=
 
     print("Reading file in {}".format(data_path))
     
-    data = pd.read_csv(data_path, parse_dates=[timestamp_col_name], index_col=[timestamp_col_name],  low_memory=False)
+    data = pd.read_csv(data_path, parse_dates=[timestamp_col_name],  low_memory=False)
     
     # Make sure all "n/e" values have been removed from df. 
     if ne_check(data):
