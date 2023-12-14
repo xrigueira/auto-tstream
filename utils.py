@@ -11,6 +11,42 @@ from typing import Optional, Any, Union, Callable, Tuple
 
 from timefeatures import time_features
 
+def get_indices(data: pd.DataFrame, window_size: int, step_size: int):
+    
+    """
+    Produce all the start and end index position that is needed to obtain the sub-sequences.
+    Returns a list of tuples. Each tuple is (start_idx, end_idx) of a subsequence. These tuples
+    should be used to slice the dataset into sub-sequences. These sub-sequences should then be
+    passed into a function that sliced them into input and target sequences.
+    ----------
+    Arguments:
+    data (pd.DataFrame): loaded database to generate the subsequences from.
+    window_size (int): the desired length of each sub-sequence. Should be (input_sequence_length + 
+        tgt_sequence_length). E.g. if you want the model to consider the past 100 time steps in 
+        order to predict the future 50 time_steps, window_size = 100 + 50 = 150.
+    step_size (int): size of each step as the data sequence is traversed by the moving window.
+    
+    Return:
+    indices: a lits of tuples.
+    """
+    
+    # Define the stop position
+    stop_position = len(data) - 1 # because of 0 indexing in Python
+    
+    # Start the first sub-sequence at index 0
+    subseq_first_idx = 0
+    subseq_last_idx = window_size
+    
+    indices = []
+    while subseq_last_idx <= stop_position:
+        
+        indices.append((subseq_first_idx, subseq_last_idx))
+        
+        subseq_first_idx += step_size
+        subseq_last_idx += step_size
+    
+    return indices
+
 def positional_encoder(data, time_encoding, frequency):
     
     time_stamps = data[['time']]

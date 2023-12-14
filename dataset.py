@@ -26,6 +26,9 @@ class AutoTransformerDataset(Dataset):
         tgt_start_idx = src_end_idx - self.decoder_sequence_len
         tgt_end_idx = tgt_start_idx + self.decoder_sequence_len + self.tgt_sequence_len
         
+        # Maybe print index differences between end and start to see if the last item does not have the same length
+        # print('src_start: {}; src_end: {}; tgt_start: {}; tgt_end: {}'. format(src_start_idx, src_end_idx, tgt_start_idx, tgt_end_idx))
+        
         # Subset data
         src = self.data[src_start_idx:src_end_idx, :-1]
         tgt = self.data[tgt_start_idx:tgt_end_idx, -1:]

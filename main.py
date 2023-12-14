@@ -15,6 +15,7 @@ import utils
 import dataset as ds
 from models.autoformer import Autoformer
 
+# Define train step
 def train(dataloader, model, loss_function, optimizer, patience, device, df_training, epoch):
     size = len(dataloader.dataset)
     model.train()
@@ -22,12 +23,12 @@ def train(dataloader, model, loss_function, optimizer, patience, device, df_trai
     for i, batch in enumerate(dataloader):
         src, tgt, src_pe, tgt_pe = batch
         src, tgt, src_pe, tgt_pe = src.float().to(device), tgt.float().to(device), src_pe.float().to(device), tgt_pe.float().to(device)
-        
+
         # Zero out gradients for every batch
         model.zero_grad()
         
         # Process decoder input
-        decoder_input = torch.zeros_like(tgt[:, -output_sequence_length:, :]).float()
+        decoder_input = torch.zeros_like(tgt[:, -output_sequence_len:, :]).float()
         decoder_input = torch.cat([tgt[:, :decoder_sequence_len, :], decoder_input], dim=1).float().to(device)
         
         # Compute prediction error
@@ -48,11 +49,12 @@ def train(dataloader, model, loss_function, optimizer, patience, device, df_trai
         epoch_train_loss = np.mean(training_loss)
         df_training.loc[epoch] = [epoch, epoch_train_loss]
         
-        if i % 5 == 0:
+        if i % 2 == 0:
             print('Current batch', i)
             loss, current = loss.item(), (i + 1) * len(src)
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
+# Define test step
 def test(dataloader, model, loss_function, patience, device, df_testing, epoch):
     num_batches = len(dataloader)
     model.eval()
@@ -63,7 +65,7 @@ def test(dataloader, model, loss_function, patience, device, df_testing, epoch):
             src, tgt, src_pe, tgt_pe = src.float().to(device), tgt.float().to(device), src_pe.float().to(device), tgt_pe.float().to(device)
             
             # Process decoder input
-            decoder_input = torch.zeros_like(tgt[:, -output_sequence_length:, :]).float()
+            decoder_input = torch.zeros_like(tgt[:, -output_sequence_len:, :]).float()
             decoder_input = torch.cat([tgt[:, :decoder_sequence_len, :], decoder_input], dim=1).float().to(device)
             
             # Compute prediction error
@@ -83,6 +85,7 @@ def test(dataloader, model, loss_function, patience, device, df_testing, epoch):
     loss /= num_batches
     # print(f"Avg test loss: {loss:>8f}")
 
+# Define validation step
 def validation(dataloader, model):
     
     # Define lists to store the predictions and ground truth
@@ -138,24 +141,26 @@ if __name__ == '__main__':
     timestamp_col_name = "time"
     
     encoder_sequence_len = 96 # length of input given to encoder
-    decoder_sequence_len = 48 # length of input given to decoder
-    output_sequence_length = 96 # target sequence length. If hourly data and length = 48, you predict 2 days ahead
+    decoder_sequence_len = 12 # length of input given to decoder
+    output_sequence_len = 96 # target sequence length. If hourly data and length = 48, you predict 2 days ahead
     encoder_input_size = 1
     decoder_input_size = 1
     decoder_output_size = 1 
-    encoder_features_fc_layer = 2048
-    decoder_features_fc_layer = 2048
+    encoder_features_fc_layer = 256
+    decoder_features_fc_layer = 256
     n_encoder_layers = 2
     n_decoder_layers = 1
     activation = 'gelu'
     embed = 'time_frequency'
-    d_model = 512
-    n_heads = 8
+    d_model = 32
+    n_heads = 2
     attention_factor = 1
     frequency = 'D'
     dropout = 0.05
     output_attention = True # Keep True for now
     moving_average = 25
+    window_size = encoder_sequence_len + output_sequence_len
+    step_size = 1
     
     num_workers = 8
     features = 'MS' # forecasting task, options:[M, S, MS]; M:multivariate predict multivariate, S:univariate predict univariate, MS:multivariate predict univariate'
@@ -186,6 +191,11 @@ if __name__ == '__main__':
     testing_data = data[(round(len(data)*(1-test_size-val_size))):(round(len(data)*(1-val_size)))]
     validation_data = data[(round(len(data)*(1-val_size))):]
     
+    # Make list of (start_idx, end_idx) pairs that are used to slice the time series sequence into chuncks
+    training_indices = utils.get_indices(data=training_data, window_size=window_size, step_size=step_size)
+    testing_indices = utils.get_indices(data=testing_data, window_size=window_size, step_size=step_size)
+    validation_indices = utils.get_indices(data=validation_data, window_size=window_size, step_size=step_size)
+    
     # Scale the data
     scaler = StandardScaler()
     
@@ -208,13 +218,13 @@ if __name__ == '__main__':
     # Make instance of the custom dataset class
     training_data = ds.AutoTransformerDataset(data=torch.tensor(training_data), data_pe=torch.tensor(training_data_pe),
                                             encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len,
-                                            tgt_sequence_len=output_sequence_length)
+                                            tgt_sequence_len=output_sequence_len)
     testing_data = ds.AutoTransformerDataset(data=torch.tensor(testing_data), data_pe=torch.tensor(testing_data_pe),
                                             encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len,
-                                            tgt_sequence_len=output_sequence_length)
+                                            tgt_sequence_len=output_sequence_len)
     validation_data = ds.AutoTransformerDataset(data=torch.tensor(validation_data), data_pe=torch.tensor(validation_data_pe),
                                             encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len,
-                                            tgt_sequence_len=output_sequence_length)
+                                            tgt_sequence_len=output_sequence_len)
 
     # Set up the dataloaders
     training_data = DataLoader(training_data, batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
@@ -222,7 +232,7 @@ if __name__ == '__main__':
     validation_data = DataLoader(validation_data, batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
     
     # Build model
-    model = Autoformer(encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len, output_sequence_len=output_sequence_length,
+    model = Autoformer(encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len, output_sequence_len=output_sequence_len,
                 encoder_input_size=encoder_input_size, decoder_input_size=decoder_input_size, decoder_output_size=decoder_output_size, 
                 encoder_features_fc_layer=encoder_features_fc_layer, decoder_features_fc_layer=decoder_features_fc_layer, n_encoder_layers=n_encoder_layers,
                 n_decoder_layers=n_decoder_layers, activation=activation, embed=embed, d_model=d_model, n_heads=n_heads, attention_factor=attention_factor,
@@ -239,16 +249,20 @@ if __name__ == '__main__':
     loss_function = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
     
-    # Update model in the training process and test it
-    epochs = 2 # 250
-    start_time = time.time()
-    df_training = pd.DataFrame(columns=('epoch', 'loss_train'))
-    df_testing = pd.DataFrame(columns=('epoch', 'loss_test'))
-    for t in range(epochs):
-        print(f"Epoch {t+1}\n-------------------------------")
-        train(training_data, model, loss_function, optimizer, patience, device, df_training, epoch=t)
-        test(testing_data, model, loss_function, device, df_testing, epoch=t)
-    print("Done! ---Execution time: %s seconds ---" % (time.time() - start_time))
+    for i, batch in enumerate(training_data):
+        src, tgt, src_pe, tgt_pe = batch
+        # print(i+1, src.shape, tgt.shape, src_pe.shape, tgt_pe.shape)
+    
+    # # Update model in the training process and test it
+    # epochs = 2 # 250
+    # start_time = time.time()
+    # df_training = pd.DataFrame(columns=('epoch', 'loss_train'))
+    # df_testing = pd.DataFrame(columns=('epoch', 'loss_test'))
+    # for t in range(epochs):
+    #     print(f"Epoch {t+1}\n-------------------------------")
+    #     train(training_data, model, loss_function, optimizer, patience, device, df_training, epoch=t)
+    #     test(testing_data, model, loss_function, device, df_testing, epoch=t)
+    # print("Done! ---Execution time: %s seconds ---" % (time.time() - start_time))
     
     # # Save the model
     # torch.save(model, "models/model.pth")
@@ -258,15 +272,15 @@ if __name__ == '__main__':
     # model = torch.load("models/model.pth").to(device)
     # print('Loaded PyTorch model from models/model.pth')
     
-    # Inference
-    validation(validation_data, model)
+    # # Inference
+    # validation(validation_data, model)
     
-    # Plot loss
-    plt.figure(1);plt.clf()
-    plt.plot(df_training['epoch'], df_training['loss_train'], '-o', label='loss train')
-    plt.plot(df_training['epoch'], df_testing['loss_test'], '-o', label='loss test')
-    plt.yscale('log')
-    plt.xlabel(r'epoch')
-    plt.ylabel(r'loss')
-    plt.legend()
-    plt.show()
+    # # Plot loss
+    # plt.figure(1);plt.clf()
+    # plt.plot(df_training['epoch'], df_training['loss_train'], '-o', label='loss train')
+    # plt.plot(df_training['epoch'], df_testing['loss_test'], '-o', label='loss test')
+    # plt.yscale('log')
+    # plt.xlabel(r'epoch')
+    # plt.ylabel(r'loss')
+    # plt.legend()
+    # plt.show()
