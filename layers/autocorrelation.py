@@ -28,7 +28,8 @@ class AutoCorrelation(nn.Module):
         channel = values.shape[2]
         length = values.shape[3]
         # find top k
-        top_k = int(self.attention_factor * math.log(length))
+        top_k = int(self.attention_factor * max(math.log(length), 1)) # My implementation: prevent top_k = 0, which allows prediction of just one step ahead
+        # top_k = int(self.attention_factor * math.log(length)) # Original implementation
         mean_value = torch.mean(torch.mean(corr, dim=1), dim=1)
         index = torch.topk(torch.mean(mean_value, dim=0), top_k, dim=-1)[1]
         weights = torch.stack([mean_value[:, index[i]] for i in range(top_k)], dim=-1)
@@ -141,6 +142,7 @@ class AutoCorrelationLayer(nn.Module):
         self.n_heads = n_heads
 
     def forward(self, queries, keys, values, attn_mask):
+        # print(values)
         B, L, _ = queries.shape
         _, S, _ = keys.shape
         H = self.n_heads
