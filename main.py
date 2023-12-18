@@ -16,7 +16,7 @@ import dataset as ds
 from models.autoformer import Autoformer
 
 # Define train step
-def train(dataloader, model, loss_function, optimizer, patience, device, df_training, epoch):
+def train(dataloader, model, loss_function, optimizer, device, df_training, epoch):
     size = len(dataloader.dataset)
     model.train()
     training_loss = [] # For plotting purposes
@@ -55,7 +55,7 @@ def train(dataloader, model, loss_function, optimizer, patience, device, df_trai
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
 # Define test step
-def test(dataloader, model, loss_function, patience, device, df_testing, epoch):
+def test(dataloader, model, loss_function, device, df_testing, epoch):
     num_batches = len(dataloader)
     model.eval()
     testing_loss = [] # For plotting purposes
@@ -94,12 +94,12 @@ def validation(dataloader, model):
     
     model.eval()
     with torch.no_grad():
-        for i, batch in enumerate(validation_data):
-            rc, tgt, src_pe, tgt_pe = batch
+        for i, batch in enumerate(dataloader):
+            src, tgt, src_pe, tgt_pe = batch
             src, tgt, src_pe, tgt_pe = src.float().to(device), tgt.float().to(device), src_pe.float().to(device), tgt_pe.float().to(device)
             
             # Process decoder input
-            decoder_input = torch.zeros_like(tgt[:, -output_sequence_length:, :]).float()
+            decoder_input = torch.zeros_like(tgt[:, -output_sequence_len:, :]).float()
             decoder_input = torch.cat([tgt[:, :decoder_sequence_len, :], decoder_input], dim=1).float().to(device)
             
             # Compute prediction error
@@ -116,15 +116,17 @@ def validation(dataloader, model):
             tgt_ys.append(tgt_y)
     
     y_hats = np.concatenate(y_hats, axis=0)
-    tgt_y = np.concatenate(tgt_ys, axis=0)
+    tgt_ys = np.concatenate(tgt_ys, axis=0)
     print('Validation shape:', y_hats.shape, tgt_ys.shape)
     y_hats = y_hats.reshape(-1, y_hats.shape[-2], y_hats.shape[-1])
-    tgt_y = tgt_y.reshape(-1, tgt_y.shape[-2], tgt_y.shape[-1])
+    tgt_ys = tgt_ys.reshape(-1, tgt_ys.shape[-2], tgt_ys.shape[-1])
     print('Validation shape:', y_hats.shape, tgt_ys.shape)
     
     # Get metrics
     mae, mse, rmse, mape, mspe = utils.metric(y_hats, tgt_ys)
-    print('MAE: {}\nMSE: {}\nRMSE: {}\nMAPE: {}\nMSPE: '.format(mae, mse, rmse, mape, mspe))
+    print('MSE: {}\nMAE: {}'.format(mse, mae))
+    
+    return y_hats, tgt_ys
 
 if __name__ == '__main__':
     
@@ -141,18 +143,18 @@ if __name__ == '__main__':
     timestamp_col_name = "time"
     
     encoder_sequence_len = 96 # length of input given to encoder
-    decoder_sequence_len = 12 # length of input given to decoder
-    output_sequence_len = 96 # target sequence length. If hourly data and length = 48, you predict 2 days ahead
+    decoder_sequence_len = 1 # length of input given to decoder
+    output_sequence_len = 2 # target sequence length
     encoder_input_size = 1
     decoder_input_size = 1
     decoder_output_size = 1 
-    encoder_features_fc_layer = 256
-    decoder_features_fc_layer = 256
+    encoder_features_fc_layer = 32
+    decoder_features_fc_layer = 32
     n_encoder_layers = 2
     n_decoder_layers = 1
     activation = 'gelu'
     embed = 'time_frequency'
-    d_model = 32
+    d_model = 16
     n_heads = 2
     attention_factor = 1
     frequency = 'D'
@@ -164,7 +166,6 @@ if __name__ == '__main__':
     
     num_workers = 8
     features = 'MS' # forecasting task, options:[M, S, MS]; M:multivariate predict multivariate, S:univariate predict univariate, MS:multivariate predict univariate'
-    patience = 3
     
     # Get device
     device = ('cuda' if torch.cuda.is_available() else 'cpu')
@@ -202,13 +203,9 @@ if __name__ == '__main__':
     # Fit scaler on the training set
     scaler.fit(training_data.values)
     
-    training_data = training_data.values
-    testing_data = testing_data.values
-    validation_data = validation_data.values
-    
-    # training_data = scaler.transform(training_data.values)
-    # testing_data = scaler.transform(testing_data.values)
-    # validation_data = scaler.transform(validation_data.values)
+    training_data = scaler.transform(training_data.values)
+    testing_data = scaler.transform(testing_data.values)
+    validation_data = scaler.transform(validation_data.values)
     
     # Extract positional encoding data
     training_data_pe = utils.positional_encoder(training_data_pe, time_encoding='time_frequency', frequency='D')
@@ -217,41 +214,37 @@ if __name__ == '__main__':
     
     # Make instance of the custom dataset class
     training_data = ds.AutoTransformerDataset(data=torch.tensor(training_data), data_pe=torch.tensor(training_data_pe),
-                                            encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len,
-                                            tgt_sequence_len=output_sequence_len)
+                                            indices=training_indices, encoder_sequence_len=encoder_sequence_len, 
+                                            decoder_sequence_len=decoder_sequence_len, tgt_sequence_len=output_sequence_len)
     testing_data = ds.AutoTransformerDataset(data=torch.tensor(testing_data), data_pe=torch.tensor(testing_data_pe),
-                                            encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len,
-                                            tgt_sequence_len=output_sequence_len)
+                                            indices=testing_indices, encoder_sequence_len=encoder_sequence_len,
+                                            decoder_sequence_len=decoder_sequence_len, tgt_sequence_len=output_sequence_len)
     validation_data = ds.AutoTransformerDataset(data=torch.tensor(validation_data), data_pe=torch.tensor(validation_data_pe),
-                                            encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len,
-                                            tgt_sequence_len=output_sequence_len)
-
+                                            indices=validation_indices, encoder_sequence_len=encoder_sequence_len,
+                                            decoder_sequence_len=decoder_sequence_len, tgt_sequence_len=output_sequence_len)
+    
     # Set up the dataloaders
     training_data = DataLoader(training_data, batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
     testing_data = DataLoader(testing_data, batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
     validation_data = DataLoader(validation_data, batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
     
-    # Build model
-    model = Autoformer(encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len, output_sequence_len=output_sequence_len,
-                encoder_input_size=encoder_input_size, decoder_input_size=decoder_input_size, decoder_output_size=decoder_output_size, 
-                encoder_features_fc_layer=encoder_features_fc_layer, decoder_features_fc_layer=decoder_features_fc_layer, n_encoder_layers=n_encoder_layers,
-                n_decoder_layers=n_decoder_layers, activation=activation, embed=embed, d_model=d_model, n_heads=n_heads, attention_factor=attention_factor,
-                frequency=frequency, dropout=dropout, output_attention=output_attention, moving_average=moving_average).float()
+    # # Build model
+    # model = Autoformer(encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len, output_sequence_len=output_sequence_len,
+    #             encoder_input_size=encoder_input_size, decoder_input_size=decoder_input_size, decoder_output_size=decoder_output_size, 
+    #             encoder_features_fc_layer=encoder_features_fc_layer, decoder_features_fc_layer=decoder_features_fc_layer, n_encoder_layers=n_encoder_layers,
+    #             n_decoder_layers=n_decoder_layers, activation=activation, embed=embed, d_model=d_model, n_heads=n_heads, attention_factor=attention_factor,
+    #             frequency=frequency, dropout=dropout, output_attention=output_attention, moving_average=moving_average).float()
     
-    # Send model to device
-    model.to(device)
+    # # Send model to device
+    # model.to(device)
     
-    # Print model and number of parameters
-    print('Defined model:\n', model)
-    utils.count_parameters(model)
+    # # Print model and number of parameters
+    # print('Defined model:\n', model)
+    # utils.count_parameters(model)
     
-    # Define optimizer and loss function
-    loss_function = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-    
-    for i, batch in enumerate(training_data):
-        src, tgt, src_pe, tgt_pe = batch
-        # print(i+1, src.shape, tgt.shape, src_pe.shape, tgt_pe.shape)
+    # # Define optimizer and loss function
+    # loss_function = nn.MSELoss()
+    # optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
     
     # # Update model in the training process and test it
     # epochs = 2 # 250
@@ -260,7 +253,7 @@ if __name__ == '__main__':
     # df_testing = pd.DataFrame(columns=('epoch', 'loss_test'))
     # for t in range(epochs):
     #     print(f"Epoch {t+1}\n-------------------------------")
-    #     train(training_data, model, loss_function, optimizer, patience, device, df_training, epoch=t)
+    #     train(training_data, model, loss_function, optimizer, device, df_training, epoch=t)
     #     test(testing_data, model, loss_function, device, df_testing, epoch=t)
     # print("Done! ---Execution time: %s seconds ---" % (time.time() - start_time))
     
@@ -273,7 +266,7 @@ if __name__ == '__main__':
     # print('Loaded PyTorch model from models/model.pth')
     
     # # Inference
-    # validation(validation_data, model)
+    # y_hats, tgt_ys = validation(validation_data, model)
     
     # # Plot loss
     # plt.figure(1);plt.clf()
@@ -282,5 +275,14 @@ if __name__ == '__main__':
     # plt.yscale('log')
     # plt.xlabel(r'epoch')
     # plt.ylabel(r'loss')
+    # plt.legend()
+    # plt.show()
+    
+    # # Plot validation
+    # plt.figure(2);plt.clf()
+    # plt.plot(tgt_ys, label='observed')
+    # plt.plot(range(len(y_hats)), y_hats, label='predicted')
+    # plt.xlabel(r'time (days)')
+    # plt.ylabel(r'y')
     # plt.legend()
     # plt.show()
