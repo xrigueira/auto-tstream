@@ -126,7 +126,7 @@ def validation(dataloader, model):
     mae, mse, rmse, mape, mspe = utils.metric(y_hats, tgt_ys)
     print('MSE: {}\nMAE: {}'.format(mse, mae))
     
-    return y_hats, tgt_ys
+    return y_hats.squeeze(), tgt_ys.squeeze()
 
 if __name__ == '__main__':
     
@@ -255,34 +255,34 @@ if __name__ == '__main__':
         print(f"Epoch {t+1}\n-------------------------------")
         train(training_data, model, loss_function, optimizer, device, df_training, epoch=t)
         test(testing_data, model, loss_function, device, df_testing, epoch=t)
-    # print("Done! ---Execution time: %s seconds ---" % (time.time() - start_time))
+    print("Done! ---Execution time: %s seconds ---" % (time.time() - start_time))
     
-    # # Save the model
-    # torch.save(model, "models/model.pth")
-    # print("Saved PyTorch entire model to models/model.pth")
+    # Save the model
+    torch.save(model, "models/model.pth")
+    print("Saved PyTorch entire model to models/model.pth")
 
-    # # Load the model
-    # model = torch.load("models/model.pth").to(device)
-    # print('Loaded PyTorch model from models/model.pth')
+    # Load the model
+    model = torch.load("models/model.pth").to(device)
+    print('Loaded PyTorch model from models/model.pth')
     
-    # # Inference
-    # y_hats, tgt_ys = validation(validation_data, model)
+    # Inference
+    y_hats, tgt_ys = validation(validation_data, model)
     
-    # # Plot loss
-    # plt.figure(1);plt.clf()
-    # plt.plot(df_training['epoch'], df_training['loss_train'], '-o', label='loss train')
-    # plt.plot(df_training['epoch'], df_testing['loss_test'], '-o', label='loss test')
-    # plt.yscale('log')
-    # plt.xlabel(r'epoch')
-    # plt.ylabel(r'loss')
-    # plt.legend()
-    # plt.show()
+    # Plot loss
+    plt.figure(1);plt.clf()
+    plt.plot(df_training['epoch'], df_training['loss_train'], '-o', label='loss train')
+    plt.plot(df_training['epoch'], df_testing['loss_test'], '-o', label='loss test')
+    plt.yscale('log')
+    plt.xlabel(r'epoch')
+    plt.ylabel(r'loss')
+    plt.legend()
+    plt.show()
     
-    # # Plot validation
-    # plt.figure(2);plt.clf()
-    # plt.plot(tgt_ys, label='observed')
-    # plt.plot(range(len(y_hats)), y_hats, label='predicted')
-    # plt.xlabel(r'time (days)')
-    # plt.ylabel(r'y')
-    # plt.legend()
-    # plt.show()
+    # Plot validation
+    plt.figure(2);plt.clf()
+    plt.plot(tgt_ys, label='observed')
+    plt.plot(range(len(y_hats)), y_hats, label='predicted')
+    plt.xlabel(r'time (days)')
+    plt.ylabel(r'y')
+    plt.legend()
+    plt.show()
