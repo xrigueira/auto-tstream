@@ -21,9 +21,9 @@ def train(dataloader, model, loss_function, optimizer, device, df_training, epoc
     model.train()
     training_loss = [] # For plotting purposes
     for i, batch in enumerate(dataloader):
-        src, tgt, src_pe, tgt_pe = batch
-        src, tgt, src_pe, tgt_pe = src.float().to(device), tgt.float().to(device), src_pe.float().to(device), tgt_pe.float().to(device)
-
+        src, tgt, tgt_y, src_pe, tgt_pe = batch
+        src, tgt, tgt_y, src_pe, tgt_pe = src.float().to(device), tgt.float().to(device), tgt_y.float().to(device), src_pe.float().to(device), tgt_pe.float().to(device)
+        
         # Zero out gradients for every batch
         model.zero_grad()
         
@@ -36,7 +36,7 @@ def train(dataloader, model, loss_function, optimizer, device, df_training, epoc
         
         f_dim = -1 if features == 'MS' else 0
         pred = pred[:, -decoder_sequence_len:, f_dim:].to(device)
-        tgt_y = tgt[:, -decoder_sequence_len:, f_dim:].to(device)
+        tgt_y = tgt_y[:, -decoder_sequence_len:, f_dim:].to(device)
         
         loss = loss_function(pred, tgt_y)
         
@@ -61,8 +61,8 @@ def test(dataloader, model, loss_function, device, df_testing, epoch):
     testing_loss = [] # For plotting purposes
     with torch.no_grad():
         for batch in dataloader:
-            src, tgt, src_pe, tgt_pe = batch
-            src, tgt, src_pe, tgt_pe = src.float().to(device), tgt.float().to(device), src_pe.float().to(device), tgt_pe.float().to(device)
+            src, tgt, tgt_y, src_pe, tgt_pe = batch
+            src, tgt, tgt_y, src_pe, tgt_pe = src.float().to(device), tgt.float().to(device), tgt_y.float().to(device), src_pe.float().to(device), tgt_pe.float().to(device)
             
             # Process decoder input
             decoder_input = torch.zeros_like(tgt[:, -output_sequence_len:, :]).float()
@@ -73,7 +73,7 @@ def test(dataloader, model, loss_function, device, df_testing, epoch):
             
             f_dim = -1 if features == 'MS' else 0
             pred = pred[:, -decoder_sequence_len:, f_dim:].to(device)
-            tgt_y = tgt[:, -decoder_sequence_len:, f_dim:].to(device)
+            tgt_y = tgt_y[:, -decoder_sequence_len:, f_dim:].to(device)
         
             loss = loss_function(pred, tgt_y)
             
@@ -95,8 +95,8 @@ def validation(dataloader, model):
     model.eval()
     with torch.no_grad():
         for i, batch in enumerate(dataloader):
-            src, tgt, src_pe, tgt_pe = batch
-            src, tgt, src_pe, tgt_pe = src.float().to(device), tgt.float().to(device), src_pe.float().to(device), tgt_pe.float().to(device)
+            src, tgt, tgt_y, src_pe, tgt_pe = batch
+            src, tgt, tgt_y, src_pe, tgt_pe = src.float().to(device), tgt.float().to(device), tgt_y.float().to(device), src_pe.float().to(device), tgt_pe.float().to(device)
             
             # Process decoder input
             decoder_input = torch.zeros_like(tgt[:, -output_sequence_len:, :]).float()
@@ -107,7 +107,7 @@ def validation(dataloader, model):
             
             f_dim = -1 if features == 'MS' else 0
             pred = pred[:, -decoder_sequence_len:, f_dim:].to(device)
-            tgt_y = tgt[:, -decoder_sequence_len:, f_dim:].to(device)
+            tgt_y = tgt_y[:, -decoder_sequence_len:, f_dim:].to(device)
             
             y_hat = pred.detach().cpu().numpy()
             tgt_y = tgt_y.detach().cpu().numpy()
@@ -144,7 +144,7 @@ if __name__ == '__main__':
     
     encoder_sequence_len = 96 # length of input given to encoder
     decoder_sequence_len = 1 # length of input given to decoder
-    output_sequence_len = 2 # target sequence length
+    output_sequence_len = 1 # target sequence length
     encoder_input_size = 1
     decoder_input_size = 1
     decoder_output_size = 1 
@@ -206,7 +206,7 @@ if __name__ == '__main__':
     training_data = scaler.transform(training_data.values)
     testing_data = scaler.transform(testing_data.values)
     validation_data = scaler.transform(validation_data.values)
-    
+
     # Extract positional encoding data
     training_data_pe = utils.positional_encoder(training_data_pe, time_encoding='time_frequency', frequency='D')
     testing_data_pe = utils.positional_encoder(testing_data_pe, time_encoding='time_frequency', frequency='D')
@@ -222,39 +222,39 @@ if __name__ == '__main__':
     validation_data = ds.AutoTransformerDataset(data=torch.tensor(validation_data), data_pe=torch.tensor(validation_data_pe),
                                             indices=validation_indices, encoder_sequence_len=encoder_sequence_len,
                                             decoder_sequence_len=decoder_sequence_len, tgt_sequence_len=output_sequence_len)
-    
+
     # Set up the dataloaders
     training_data = DataLoader(training_data, batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
     testing_data = DataLoader(testing_data, batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
     validation_data = DataLoader(validation_data, batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
+
+    # Build model
+    model = Autoformer(encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len, output_sequence_len=output_sequence_len,
+                encoder_input_size=encoder_input_size, decoder_input_size=decoder_input_size, decoder_output_size=decoder_output_size, 
+                encoder_features_fc_layer=encoder_features_fc_layer, decoder_features_fc_layer=decoder_features_fc_layer, n_encoder_layers=n_encoder_layers,
+                n_decoder_layers=n_decoder_layers, activation=activation, embed=embed, d_model=d_model, n_heads=n_heads, attention_factor=attention_factor,
+                frequency=frequency, dropout=dropout, output_attention=output_attention, moving_average=moving_average).float()
     
-    # # Build model
-    # model = Autoformer(encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len, output_sequence_len=output_sequence_len,
-    #             encoder_input_size=encoder_input_size, decoder_input_size=decoder_input_size, decoder_output_size=decoder_output_size, 
-    #             encoder_features_fc_layer=encoder_features_fc_layer, decoder_features_fc_layer=decoder_features_fc_layer, n_encoder_layers=n_encoder_layers,
-    #             n_decoder_layers=n_decoder_layers, activation=activation, embed=embed, d_model=d_model, n_heads=n_heads, attention_factor=attention_factor,
-    #             frequency=frequency, dropout=dropout, output_attention=output_attention, moving_average=moving_average).float()
+    # Send model to device
+    model.to(device)
     
-    # # Send model to device
-    # model.to(device)
+    # Print model and number of parameters
+    print('Defined model:\n', model)
+    utils.count_parameters(model)
     
-    # # Print model and number of parameters
-    # print('Defined model:\n', model)
-    # utils.count_parameters(model)
+    # Define optimizer and loss function
+    loss_function = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
     
-    # # Define optimizer and loss function
-    # loss_function = nn.MSELoss()
-    # optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-    
-    # # Update model in the training process and test it
-    # epochs = 2 # 250
-    # start_time = time.time()
-    # df_training = pd.DataFrame(columns=('epoch', 'loss_train'))
-    # df_testing = pd.DataFrame(columns=('epoch', 'loss_test'))
-    # for t in range(epochs):
-    #     print(f"Epoch {t+1}\n-------------------------------")
-    #     train(training_data, model, loss_function, optimizer, device, df_training, epoch=t)
-    #     test(testing_data, model, loss_function, device, df_testing, epoch=t)
+    # Update model in the training process and test it
+    epochs = 2 # 250
+    start_time = time.time()
+    df_training = pd.DataFrame(columns=('epoch', 'loss_train'))
+    df_testing = pd.DataFrame(columns=('epoch', 'loss_test'))
+    for t in range(epochs):
+        print(f"Epoch {t+1}\n-------------------------------")
+        train(training_data, model, loss_function, optimizer, device, df_training, epoch=t)
+        test(testing_data, model, loss_function, device, df_testing, epoch=t)
     # print("Done! ---Execution time: %s seconds ---" % (time.time() - start_time))
     
     # # Save the model

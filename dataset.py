@@ -37,10 +37,10 @@ class AutoTransformerDataset(Dataset):
             sequence = self.data[start_idx:end_idx]
             sequence_pe = self.data_pe[start_idx:end_idx]
 
-            src, tgt, src_pe, tgt_pe = self._get_srcs_tgts(sequence=sequence, sequence_pe=sequence_pe, encoder_sequence_len=self.encoder_sequence_len,
+            src, tgt, tgt_y, src_pe, tgt_pe = self._get_srcs_tgts(sequence=sequence, sequence_pe=sequence_pe, encoder_sequence_len=self.encoder_sequence_len,
                                                         decoder_sequence_len=self.decoder_sequence_len, tgt_sequence_len=self.tgt_sequence_len)
 
-            return src, tgt, src_pe, tgt_pe
+            return src, tgt, tgt_y, src_pe, tgt_pe
         
         except IndexError:
             # Handle the case where the index is out of range
@@ -70,7 +70,7 @@ class AutoTransformerDataset(Dataset):
 
         assert len(tgt_y) == decoder_sequence_len + tgt_sequence_len - 1, "Lenght of tgt_y does not match target sequence length: (decoder_sequence_len + tgt_sequence_len - 1)"
         
-        return src, tgt, src_pe, tgt_pe
+        return src, tgt, tgt_y, src_pe, tgt_pe
     
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
