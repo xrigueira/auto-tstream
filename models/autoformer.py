@@ -117,6 +117,6 @@ class Autoformer(nn.Module):
         dec_out = trend_part + seasonal_part
 
         if self.output_attention:
-            return dec_out[:, -self.decoder_sequence_len:, :], attns
+            return dec_out[:, -self.output_sequence_len:, :], attns
         else:
-            return dec_out[:, -self.decoder_sequence_len:, :]  # [B, L, D]
+            return dec_out[:, -self.output_sequence_len:, :]  # [B, L, D]

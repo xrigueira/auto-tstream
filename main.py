@@ -14,6 +14,8 @@ from torch.utils.data import DataLoader
 import utils
 import dataset as ds
 from models.autoformer import Autoformer
+from models.informer import Informer
+from models.fedformer import FEDformer
 
 # Define train step
 def train(dataloader, model, loss_function, optimizer, device, df_training, epoch):
@@ -49,7 +51,7 @@ def train(dataloader, model, loss_function, optimizer, device, df_training, epoc
         epoch_train_loss = np.mean(training_loss)
         df_training.loc[epoch] = [epoch, epoch_train_loss]
         
-        if i % 2 == 0:
+        if i % 10 == 0:
             print('Current batch', i)
             loss, current = loss.item(), (i + 1) * len(src)
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
@@ -141,10 +143,11 @@ if __name__ == '__main__':
     tgt_variables = ['y']
     input_variables = src_variables + tgt_variables
     timestamp_col_name = "time"
+    model_selection = 'fedformer'
     
     encoder_sequence_len = 96 # length of input given to encoder
     decoder_sequence_len = 1 # length of input given to decoder
-    output_sequence_len = 1 # target sequence length
+    output_sequence_len = 2 # target sequence length (the informer does not work with 1 step ahead)
     encoder_input_size = 1
     decoder_input_size = 1
     decoder_output_size = 1 
@@ -157,12 +160,23 @@ if __name__ == '__main__':
     d_model = 16
     n_heads = 2
     attention_factor = 1
-    frequency = 'D'
+    frequency = 'd'
     dropout = 0.05
+    distill = True # For the Informer: whether to use distilling in encoder, using this argument means not using distilling
     output_attention = True # Keep True for now
-    moving_average = 25
+    moving_average = 24
     window_size = encoder_sequence_len + output_sequence_len
     step_size = 1
+
+    # FEDformer specific hyperparams
+    L = 1
+    ab = 0
+    modes = 32
+    mode_select = 'random'
+    version = 'Wavelets' # 'Wavelets' or 'Fourier'
+    base = 'legendre'
+    cross_activation = 'tanh'
+    wavelet = 0
     
     num_workers = 8
     features = 'MS' # forecasting task, options:[M, S, MS]; M:multivariate predict multivariate, S:univariate predict univariate, MS:multivariate predict univariate'
@@ -208,9 +222,9 @@ if __name__ == '__main__':
     validation_data = scaler.transform(validation_data.values)
 
     # Extract positional encoding data
-    training_data_pe = utils.positional_encoder(training_data_pe, time_encoding='time_frequency', frequency='D')
-    testing_data_pe = utils.positional_encoder(testing_data_pe, time_encoding='time_frequency', frequency='D')
-    validation_data_pe = utils.positional_encoder(validation_data_pe, time_encoding='time_frequency', frequency='D')
+    training_data_pe = utils.positional_encoder(training_data_pe, time_encoding='time_frequency', frequency='d')
+    testing_data_pe = utils.positional_encoder(testing_data_pe, time_encoding='time_frequency', frequency='d')
+    validation_data_pe = utils.positional_encoder(validation_data_pe, time_encoding='time_frequency', frequency='d')
     
     # Make instance of the custom dataset class
     training_data = ds.AutoTransformerDataset(data=torch.tensor(training_data), data_pe=torch.tensor(training_data_pe),
@@ -229,12 +243,27 @@ if __name__ == '__main__':
     validation_data = DataLoader(validation_data, batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
 
     # Build model
-    model = Autoformer(encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len, output_sequence_len=output_sequence_len,
-                encoder_input_size=encoder_input_size, decoder_input_size=decoder_input_size, decoder_output_size=decoder_output_size, 
-                encoder_features_fc_layer=encoder_features_fc_layer, decoder_features_fc_layer=decoder_features_fc_layer, n_encoder_layers=n_encoder_layers,
-                n_decoder_layers=n_decoder_layers, activation=activation, embed=embed, d_model=d_model, n_heads=n_heads, attention_factor=attention_factor,
-                frequency=frequency, dropout=dropout, output_attention=output_attention, moving_average=moving_average).float()
-    
+    if model_selection == 'autoformer':
+        model = Autoformer(encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len, output_sequence_len=output_sequence_len,
+                    encoder_input_size=encoder_input_size, decoder_input_size=decoder_input_size, decoder_output_size=decoder_output_size, 
+                    encoder_features_fc_layer=encoder_features_fc_layer, decoder_features_fc_layer=decoder_features_fc_layer, n_encoder_layers=n_encoder_layers,
+                    n_decoder_layers=n_decoder_layers, activation=activation, embed=embed, d_model=d_model, n_heads=n_heads, attention_factor=attention_factor,
+                    frequency=frequency, dropout=dropout, output_attention=output_attention, moving_average=moving_average).float()
+    elif model_selection == 'informer':
+        model = Informer(output_sequence_len=output_sequence_len, encoder_input_size=encoder_input_size, decoder_input_size=decoder_input_size, 
+                        decoder_output_size=decoder_output_size, encoder_features_fc_layer=encoder_features_fc_layer, decoder_features_fc_layer=decoder_features_fc_layer, 
+                        n_encoder_layers=n_encoder_layers, n_decoder_layers=n_decoder_layers, activation=activation, embed=embed, d_model=d_model, n_heads=n_heads, 
+                        attention_factor=attention_factor, frequency=frequency, dropout=dropout, distill=distill, output_attention=output_attention).float()
+    elif model_selection == 'fedformer':
+        model = FEDformer(encoder_sequence_len=encoder_sequence_len, decoder_sequence_len=decoder_sequence_len, output_sequence_len=output_sequence_len,
+                        encoder_input_size=encoder_input_size, decoder_input_size=decoder_input_size , decoder_output_size=decoder_output_size, 
+                        encoder_features_fc_layer=encoder_features_fc_layer, decoder_features_fc_layer=decoder_features_fc_layer, n_encoder_layers=n_encoder_layers, 
+                        n_decoder_layers=n_decoder_layers, activation=activation, embed=embed, d_model=d_model, n_heads=n_heads, frequency=frequency, 
+                        dropout=dropout, output_attention=output_attention, moving_average=moving_average, version=version, mode_select=model_selection, 
+                        modes=modes, L=L, base=base, cross_activation=cross_activation, wavelet=wavelet).float()
+    else:
+        raise ValueError('Model not implemented')
+
     # Send model to device
     model.to(device)
     
@@ -247,7 +276,7 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
     
     # Update model in the training process and test it
-    epochs = 2 # 250
+    epochs = 5 # 250
     start_time = time.time()
     df_training = pd.DataFrame(columns=('epoch', 'loss_train'))
     df_testing = pd.DataFrame(columns=('epoch', 'loss_test'))
@@ -257,32 +286,32 @@ if __name__ == '__main__':
         test(testing_data, model, loss_function, device, df_testing, epoch=t)
     print("Done! ---Execution time: %s seconds ---" % (time.time() - start_time))
     
-    # Save the model
-    torch.save(model, "models/model.pth")
-    print("Saved PyTorch entire model to models/model.pth")
+    # # Save the model
+    # torch.save(model, "models/model.pth")
+    # print("Saved PyTorch entire model to models/model.pth")
 
-    # Load the model
-    model = torch.load("models/model.pth").to(device)
-    print('Loaded PyTorch model from models/model.pth')
+    # # Load the model
+    # model = torch.load("models/model.pth").to(device)
+    # print('Loaded PyTorch model from models/model.pth')
     
-    # Inference
-    y_hats, tgt_ys = validation(validation_data, model)
+    # # Inference
+    # y_hats, tgt_ys = validation(validation_data, model)
     
-    # Plot loss
-    plt.figure(1);plt.clf()
-    plt.plot(df_training['epoch'], df_training['loss_train'], '-o', label='loss train')
-    plt.plot(df_training['epoch'], df_testing['loss_test'], '-o', label='loss test')
-    plt.yscale('log')
-    plt.xlabel(r'epoch')
-    plt.ylabel(r'loss')
-    plt.legend()
-    plt.show()
+    # # Plot loss
+    # plt.figure(1);plt.clf()
+    # plt.plot(df_training['epoch'], df_training['loss_train'], '-o', label='loss train')
+    # plt.plot(df_training['epoch'], df_testing['loss_test'], '-o', label='loss test')
+    # plt.yscale('log')
+    # plt.xlabel(r'epoch')
+    # plt.ylabel(r'loss')
+    # plt.legend()
+    # plt.show()
     
-    # Plot validation
-    plt.figure(2);plt.clf()
-    plt.plot(tgt_ys, label='observed')
-    plt.plot(range(len(y_hats)), y_hats, label='predicted')
-    plt.xlabel(r'time (days)')
-    plt.ylabel(r'y')
-    plt.legend()
-    plt.show()
+    # # Plot validation
+    # plt.figure(2);plt.clf()
+    # plt.plot(tgt_ys, label='observed')
+    # plt.plot(range(len(y_hats)), y_hats, label='predicted')
+    # plt.xlabel(r'time (days)')
+    # plt.ylabel(r'y')
+    # plt.legend()
+    # plt.show()
