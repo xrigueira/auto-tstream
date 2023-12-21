@@ -360,67 +360,6 @@ def get_filter(base, k):
         
     return H0, H1, G0, G1, PHI0, PHI1
 
-def train(model, train_loader, optimizer, epoch, device, verbose = 0,
-    lossFn = None, lr_schedule=None, 
-    post_proc = lambda args: args):
-        
-    if lossFn is None:
-        lossFn = nn.MSELoss()
-
-    model.train()
-    
-    total_loss = 0.
-
-    for batch_idx, (data, target) in enumerate(train_loader):
-        
-        bs = len(data)
-        data, target = data.to(device), target.to(device)
-        optimizer.zero_grad()
-        
-        output = model(data)
-        
-        target = post_proc(target)
-        output = post_proc(output)
-        loss = lossFn(output.view(bs, -1), target.view(bs, -1))
-        
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.sum().item()
-    if lr_schedule is not None: lr_schedule.step()
-    
-    if verbose>0:
-        print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                    epoch, batch_idx * len(data), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader), loss.item()))
-        
-    return total_loss/len(train_loader.dataset)
-
-
-def test(model, test_loader, device, verbose=0, lossFn=None,
-        post_proc = lambda args: args):
-    
-    model.eval()
-    if lossFn is None:
-        lossFn = nn.MSELoss()
-    
-    
-    total_loss = 0.
-    predictions = []
-    
-    with torch.no_grad():
-        for data, target in test_loader:
-            bs = len(data)
-
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            output = post_proc(output)
-            
-            loss = lossFn(output.view(bs, -1), target.view(bs, -1))
-            total_loss += loss.sum().item()
-    
-    return total_loss/len(test_loader.dataset)
-
-
 # Till EoF
 # taken from FNO paper:
 # https://github.com/zongyi-li/fourier_neural_operator
