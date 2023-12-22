@@ -316,3 +316,4 @@ if __name__ == '__main__':
 
     # NSE metric
     nse = utils.nash_sutcliffe_efficiency(tgt_ys, y_hats)
+    print('NSE: {}'.format(nse))
