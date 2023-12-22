@@ -1,4 +1,3 @@
-# Call the dataset in the same fashion as tstream
 import time
 import numpy as np
 import pandas as pd
@@ -144,7 +143,7 @@ if __name__ == '__main__':
     timestamp_col_name = "time"
     model_selection = 'autoformer' # 'autoformer', 'informer', 'fedformer'
     
-    encoder_sequence_len = 365 # length of input given to encoder
+    encoder_sequence_len = 96 # length of input given to encoder
     decoder_sequence_len = 1 # length of input given to decoder
     output_sequence_len = 2 # target sequence length (the informer does not work with 1 step ahead)
     encoder_input_size = 1

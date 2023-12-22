@@ -23,6 +23,7 @@ PyTorch >= 2.11.1."""
 
 # Define train step
 def train(dataloader, model, loss_function, optimizer, device, df_training, epoch):
+
     size = len(dataloader.dataset)
     model.train()
     training_loss = [] # For plotting purposes
@@ -62,6 +63,7 @@ def train(dataloader, model, loss_function, optimizer, device, df_training, epoc
 
 # Define test step
 def test(dataloader, model, loss_function, device, df_testing, epoch):
+    
     num_batches = len(dataloader)
     model.eval()
     testing_loss = [] # For plotting purposes
