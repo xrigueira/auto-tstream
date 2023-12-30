@@ -1,4 +1,5 @@
 import time
+import datetime
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -17,6 +18,7 @@ from models.fedformer import FEDformer
 
 # Define train step
 def train(dataloader, model, loss_function, optimizer, device, df_training, epoch):
+    
     size = len(dataloader.dataset)
     model.train()
     training_loss = [] # For plotting purposes
@@ -49,16 +51,17 @@ def train(dataloader, model, loss_function, optimizer, device, df_training, epoc
         epoch_train_loss = np.mean(training_loss)
         df_training.loc[epoch] = [epoch, epoch_train_loss]
         
-        if i % 10 == 0:
-            print('Current batch', i)
-            loss, current = loss.item(), (i + 1) * len(src)
-            print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+        # if i % 20 == 0:
+        #     print('Current batch', i)
+        #     loss, current = loss.item(), (i + 1) * len(src)
+        #     print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
-# Define test step
-def test(dataloader, model, loss_function, device, df_testing, epoch):
+# Define val step
+def val(dataloader, model, loss_function, device, df_validation, epoch):
+    
     num_batches = len(dataloader)
     model.eval()
-    testing_loss = [] # For plotting purposes
+    validation_loss = [] # For plotting purposes
     with torch.no_grad():
         for batch in dataloader:
             src, tgt, tgt_y, src_pe, tgt_pe = batch
@@ -78,15 +81,15 @@ def test(dataloader, model, loss_function, device, df_testing, epoch):
             loss = loss_function(pred, tgt_y)
             
             # Save results for plotting
-            testing_loss.append(loss.item())
-            epoch_test_loss = np.mean(testing_loss)
-            df_testing.loc[epoch] = [epoch, epoch_test_loss]
+            validation_loss.append(loss.item())
+            epoch_val_loss = np.mean(validation_loss)
+            df_validation.loc[epoch] = [epoch, epoch_val_loss]
     
     loss /= num_batches
     # print(f"Avg test loss: {loss:>8f}")
 
-# Define validation step
-def validation(dataloader, model):
+# Define test step
+def test(dataloader, model):
     
     # Define lists to store the predictions and ground truth
     y_hats = []
@@ -117,10 +120,10 @@ def validation(dataloader, model):
     
     y_hats = np.concatenate(y_hats, axis=0)
     tgt_ys = np.concatenate(tgt_ys, axis=0)
-    print('Validation shape:', y_hats.shape, tgt_ys.shape)
+    print('Test shape:', y_hats.shape, tgt_ys.shape)
     y_hats = y_hats.reshape(-1, y_hats.shape[-2], y_hats.shape[-1])
     tgt_ys = tgt_ys.reshape(-1, tgt_ys.shape[-2], tgt_ys.shape[-1])
-    print('Validation shape:', y_hats.shape, tgt_ys.shape)
+    print('Test shape:', y_hats.shape, tgt_ys.shape)
     
     # Get metrics
     mae, mse, rmse, mape, mspe = utils.metric(y_hats, tgt_ys)
@@ -134,15 +137,18 @@ if __name__ == '__main__':
     torch.manual_seed(0)
     
     # Hyperparams
-    test_size = 0.2
-    val_size = 0.1
     batch_size = 128
+    validation_size = 0.125
     src_variables = ['X']
     tgt_variables = ['y']
     input_variables = src_variables + tgt_variables
     timestamp_col_name = "time"
     model_selection = 'autoformer' # 'autoformer', 'informer', 'fedformer'
     
+    d_model = 16
+    n_heads = 2
+    n_encoder_layers = 2
+    n_decoder_layers = 1
     encoder_sequence_len = 96 # length of input given to encoder
     decoder_sequence_len = 1 # length of input given to decoder
     output_sequence_len = 2 # target sequence length (the informer does not work with 1 step ahead)
@@ -151,12 +157,8 @@ if __name__ == '__main__':
     decoder_output_size = 1 
     encoder_features_fc_layer = 32
     decoder_features_fc_layer = 32
-    n_encoder_layers = 2
-    n_decoder_layers = 1
     activation = 'gelu'
     embed = 'time_frequency'
-    d_model = 16
-    n_heads = 2
     attention_factor = 1
     frequency = 'd'
     dropout = 0.05
@@ -185,60 +187,66 @@ if __name__ == '__main__':
     
     # Read the data
     data = utils.read_data(timestamp_col_name=timestamp_col_name)
-    data.drop('Unnamed: 0', axis=1, inplace=True)
     
-    # Extract train, test, and validation temporal data for position encoding
-    training_data_pe = data[:-(round(len(data)*(test_size+val_size)))].iloc[:, :1]
-    testing_data_pe = data.iloc[:, :1][(round(len(data)*(1-test_size-val_size))):(round(len(data)*(1-val_size)))]
-    validation_data_pe = data.iloc[:, :1][(round(len(data)*(1-val_size))):]
+    # Extract train and test data
+    training_val_lower_bound = datetime.datetime(1980, 10, 1)
+    training_val_upper_bound = datetime.datetime(2010, 9, 30)
+
+    # Extract train/validation and test data
+    training_val_data = data[(training_val_lower_bound <= data.time) & (data.time <= training_val_upper_bound)]
+    testing_data = data[data.time > training_val_upper_bound]
+
+    # Extract train/calibrate and test temporal data for positional encoding
+    training_val_data_pe = training_val_data.iloc[:, :1]
+    testing_data_pe = testing_data.iloc[:, :1]
     
     # Adapt to prediction task
     if features == 'M' or features == 'MS':
         cols_data = data.columns[1:]
-        data = data[cols_data]
+        training_val_data = training_val_data[cols_data]
+        testing_data = testing_data[cols_data]
     elif features == 'S':
-        data = data[[tgt_variables[0]]]
-    
-    # Extract train, test and validaiton data
-    training_data = data[:-(round(len(data)*(test_size+val_size)))]
-    testing_data = data[(round(len(data)*(1-test_size-val_size))):(round(len(data)*(1-val_size)))]
-    validation_data = data[(round(len(data)*(1-val_size))):]
-    
-    # Make list of (start_idx, end_idx) pairs that are used to slice the time series sequence into chuncks
-    training_indices = utils.get_indices(data=training_data, window_size=window_size, step_size=step_size)
-    testing_indices = utils.get_indices(data=testing_data, window_size=window_size, step_size=step_size)
-    validation_indices = utils.get_indices(data=validation_data, window_size=window_size, step_size=step_size)
-    
+        training_val_data = training_val_data[[src_variables[0]]]
+        testing_data = testing_data[[src_variables[0]]]
+
     # Scale the data
     scaler = StandardScaler()
     
     # Fit scaler on the training set
-    scaler.fit(training_data.values)
+    scaler.fit(training_val_data.values)
     
-    training_data = scaler.transform(training_data.values)
+    training_val_data = scaler.transform(training_val_data.values)
     testing_data = scaler.transform(testing_data.values)
-    validation_data = scaler.transform(validation_data.values)
-
+    
+    # Make list of (start_idx, end_idx) pairs that are used to slice the time series sequence into chuncks
+    training_val_indices = utils.get_indices(data=training_val_data, window_size=window_size, step_size=step_size)
+    
+    training_indices = training_val_indices[:-(round(len(training_val_indices)*validation_size))]
+    validation_indices = training_val_indices[(round(len(training_val_indices)*(1-validation_size))):]
+    
+    testing_indices = utils.get_indices(data=testing_data, window_size=window_size, step_size=step_size)
+    
     # Extract positional encoding data
-    training_data_pe = utils.positional_encoder(training_data_pe, time_encoding='time_frequency', frequency='d')
+    training_val_data_pe = utils.positional_encoder(training_val_data_pe, time_encoding='time_frequency', frequency='d')
     testing_data_pe = utils.positional_encoder(testing_data_pe, time_encoding='time_frequency', frequency='d')
-    validation_data_pe = utils.positional_encoder(validation_data_pe, time_encoding='time_frequency', frequency='d')
     
     # Make instance of the custom dataset class
-    training_data = ds.AutoTransformerDataset(data=torch.tensor(training_data), data_pe=torch.tensor(training_data_pe),
+    training_data = ds.AutoTransformerDataset(data=torch.tensor(training_val_data), data_pe=torch.tensor(training_val_data_pe),
                                             indices=training_indices, encoder_sequence_len=encoder_sequence_len, 
+                                            decoder_sequence_len=decoder_sequence_len, tgt_sequence_len=output_sequence_len)
+    validation_data = ds.AutoTransformerDataset(data=torch.tensor(training_val_data), data_pe=torch.tensor(training_val_data_pe),
+                                            indices=validation_indices, encoder_sequence_len=encoder_sequence_len,
                                             decoder_sequence_len=decoder_sequence_len, tgt_sequence_len=output_sequence_len)
     testing_data = ds.AutoTransformerDataset(data=torch.tensor(testing_data), data_pe=torch.tensor(testing_data_pe),
                                             indices=testing_indices, encoder_sequence_len=encoder_sequence_len,
                                             decoder_sequence_len=decoder_sequence_len, tgt_sequence_len=output_sequence_len)
-    validation_data = ds.AutoTransformerDataset(data=torch.tensor(validation_data), data_pe=torch.tensor(validation_data_pe),
-                                            indices=validation_indices, encoder_sequence_len=encoder_sequence_len,
-                                            decoder_sequence_len=decoder_sequence_len, tgt_sequence_len=output_sequence_len)
-
+    
     # Set up the dataloaders
+    training_val_data = training_data + validation_data # For testing puporses
     training_data = DataLoader(training_data, batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
-    testing_data = DataLoader(testing_data, batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
-    validation_data = DataLoader(validation_data, batch_size=1, shuffle=False, num_workers=num_workers, drop_last=False)
+    validation_data = DataLoader(validation_data, batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
+    testing_data = DataLoader(testing_data, batch_size=1, shuffle=False, num_workers=num_workers, drop_last=False)
+    training_val_data = DataLoader(training_val_data, batch_size=1, shuffle=False, num_workers=num_workers, drop_last=False) # For testing puporses
 
     # Build model
     if model_selection == 'autoformer':
@@ -277,43 +285,73 @@ if __name__ == '__main__':
     epochs = 5 # 250
     start_time = time.time()
     df_training = pd.DataFrame(columns=('epoch', 'loss_train'))
-    df_testing = pd.DataFrame(columns=('epoch', 'loss_test'))
+    df_validation = pd.DataFrame(columns=('epoch', 'loss_test'))
     for t in range(epochs):
         print(f"Epoch {t+1}\n-------------------------------")
         train(training_data, model, loss_function, optimizer, device, df_training, epoch=t)
-        test(testing_data, model, loss_function, device, df_testing, epoch=t)
+        val(validation_data, model, loss_function, device, df_validation, epoch=t)
     print("Done! ---Execution time: %s seconds ---" % (time.time() - start_time))
     
-    # Save the model
-    torch.save(model, "models/model.pth")
-    print("Saved PyTorch entire model to models/model.pth")
+    # # Save the model
+    # torch.save(model, "models/model.pth")
+    # print("Saved PyTorch entire model to models/model.pth")
 
-    # Load the model
-    model = torch.load("models/model.pth").to(device)
-    print('Loaded PyTorch model from models/model.pth')
+    # # Load the model
+    # model = torch.load("models/model.pth").to(device)
+    # print('Loaded PyTorch model from models/model.pth')
     
     # Inference
-    y_hats, tgt_ys = validation(validation_data, model)
+    y_hats_train_val, tgt_ys_train_val = test(training_val_data, model)
+    y_hats_test, tgt_ys_test = test(testing_data, model)
     
     # Plot loss
     plt.figure(1);plt.clf()
     plt.plot(df_training['epoch'], df_training['loss_train'], '-o', label='loss train')
-    plt.plot(df_training['epoch'], df_testing['loss_test'], '-o', label='loss test')
+    plt.plot(df_training['epoch'], df_validation['loss_test'], '-o', label='loss test')
     plt.yscale('log')
     plt.xlabel(r'epoch')
     plt.ylabel(r'loss')
     plt.legend()
     plt.show()
     
-    # Plot validation
+    # Plot testing results
     plt.figure(2);plt.clf()
-    plt.plot(tgt_ys, label='observed')
-    plt.plot(range(len(y_hats)), y_hats, label='predicted')
+    plt.plot(tgt_ys_train_val, label='observed')
+    plt.plot(y_hats_train_val, label='predicted')
+    plt.title('Training and validation results')
     plt.xlabel(r'time (days)')
     plt.ylabel(r'y')
     plt.legend()
     plt.show()
 
-    # NSE metric
-    nse = utils.nash_sutcliffe_efficiency(tgt_ys, y_hats)
-    print('NSE: {}'.format(nse))
+    plt.figure(2);plt.clf()
+    plt.plot(tgt_ys_test, label='observed')
+    plt.plot(y_hats_test, label='predicted')
+    plt.title('Testing results')
+    plt.xlabel(r'time (days)')
+    plt.ylabel(r'y')
+    plt.legend()
+    plt.show()
+
+    # Metrics
+    from sklearn.metrics import mean_squared_error
+
+    nse_train_val = utils.nash_sutcliffe_efficiency(tgt_ys_train_val, y_hats_train_val)
+    rmse_train_val = np.sqrt(mean_squared_error(tgt_ys_train_val, y_hats_train_val))
+    pbias_train_val = utils.pbias(tgt_ys_train_val, y_hats_train_val)
+    kge_train_val = utils.kge(tgt_ys_train_val, y_hats_train_val)
+    print('\n-- Train/val results')
+    print('NSE = ', nse_train_val)
+    print('RMSE = ', rmse_train_val)
+    print('PBIAS = ', pbias_train_val)
+    print('KGE = ', kge_train_val)
+    
+    nse_test = utils.nash_sutcliffe_efficiency(tgt_ys_test, y_hats_test)
+    rmse_test = np.sqrt(mean_squared_error(tgt_ys_test, y_hats_test))
+    pbias_test = utils.pbias(tgt_ys_test, y_hats_test)
+    kge_test = utils.kge(tgt_ys_test, y_hats_test)
+    print('\n-- Testing results')
+    print('NSE = ', nse_test)
+    print('RMSE = ', rmse_test)
+    print('PBIAS = ', pbias_test)
+    print('KGE = ', kge_test)
