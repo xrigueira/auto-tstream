@@ -2,6 +2,7 @@ import math
 import numpy as np
 import pandas as pd
 from functools import partial
+from scipy.stats import pearsonr
 from prettytable import PrettyTable
 
 import torch
