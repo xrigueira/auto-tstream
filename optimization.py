@@ -195,7 +195,7 @@ if __name__ == '__main__':
     torch.manual_seed(0)
 
     # Hyperparams
-    batch_size = 128
+    batch_size = 32
     validation_size = 0.125
     src_variables = ['X']
     tgt_variables = ['y']
@@ -207,7 +207,7 @@ if __name__ == '__main__':
     # n_heads = 2
     # n_encoder_layers = 2
     # n_decoder_layers = 1
-    encoder_sequence_len = 365 # length of input given to encoder
+    encoder_sequence_len = 1460 # length of input given to encoder
     decoder_sequence_len = 1 # length of input given to decoder
     output_sequence_len = 2 # target sequence length (the informer does not work with 1 step ahead)
     encoder_input_size = 1
